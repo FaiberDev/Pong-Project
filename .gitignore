@@ -1,0 +1,17 @@
+# Unreal Engine temporary / build directories
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+
+# IDE and solution files
+.idea/
+.vs/
+*.sln
+*.DotSettings.user
+.vsconfig
+
+# OS generated files
+.DS_Store
+Thumbs.db
