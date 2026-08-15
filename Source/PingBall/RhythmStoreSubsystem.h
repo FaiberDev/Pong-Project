@@ -24,10 +24,10 @@ class PINGBALL_API URhythmStoreSubsystem : public UWorldSubsystem
 public:
 	//  Shared Rhythm Data
 	UPROPERTY(BlueprintReadOnly, Category = "Rhythm Store")
-	float CurrentBPM = 120.0f;
+	float CurrentBPM = 146.0f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Rhythm Store")
-	int32 BeatsPerBar = 8;
+	int32 TimeSignature = 4;
 
 	// Event broadcast when a beat occurs
 	UPROPERTY(BlueprintAssignable, Category = "Rhythm Store")
@@ -44,8 +44,11 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Rhythm Store")
 	FOnBeatsPerBarSet OnBeatsPerBarSet;
 	
-	// Function to get the current BPM
-	float GetBPM() const { return CurrentBPM; }	
+	// Setters and getters
+	float GetBPM() const { return CurrentBPM; }
+	
+	int32 GetTimeSignature() const { return TimeSignature; }
+	void SetTimeSignature(float inTimeSignature){TimeSignature = inTimeSignature; OnBeatsPerBarSet.Broadcast(TimeSignature);};
 	
 	float GetCurrentBeat() const { return CurrentBeat; }
 	void SetCurrentBeat(float InBeat) { CurrentBeat = InBeat; }

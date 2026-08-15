@@ -16,7 +16,7 @@ AARythmPaddle::AARythmPaddle()
 	//Create the paddle mesh component and set it as the root component
 	paddleMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PaddleMesh"));
 	RootComponent = paddleMesh;
-	paddleSpeed = 400.0f; // Default speed for paddle movement
+	paddleSpeed = 300.0f; // Default speed for paddle movement
 	
 	Color0 = FColor(255, 255, 255, 1).ReinterpretAsLinear(); // White
 	Color1 = FColor(229, 72, 103, 1).ReinterpretAsLinear(); // Red
@@ -110,7 +110,6 @@ void AARythmPaddle::ChangePaddleColor(FLinearColor NewColor)
 
 void AARythmPaddle::OnColor1Input(const FInputActionValue& Value)
 {
-	UE_LOG(LogTemp, Warning, TEXT("Color 1 Input Triggered"));
 	ChangePaddleColor(Color1);
 }
 void AARythmPaddle::OnColor2Input(const FInputActionValue& Value)

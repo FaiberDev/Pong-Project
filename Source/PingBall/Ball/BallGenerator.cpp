@@ -37,6 +37,7 @@ void ABallGenerator::Tick(float DeltaTime)
 
 void ABallGenerator::GetBeatFromStore(int32 BeatNumber)
 {	
+	
 	CurrentAbsoluteBeat++;
 	
 	int32 TargetBeatNumber = CurrentAbsoluteBeat + LookAheadOffSet; // Look ahead 3 beats
@@ -50,22 +51,44 @@ void ABallGenerator::GetBeatFromStore(int32 BeatNumber)
 
 void ABallGenerator::LookAheadForNextBeat(int32 BeatNumber)
 {
+	
+	float PaddleXLocation = 0.0f;
 	for (FBeatMapNote CurrentNote : BeatMap)
 	{
 		if (CurrentNote.BeatToSpawn == BeatNumber)
 		{
 			if (BallClass)
-			{	
+			{  
+				// 1. Get the exact starting transform for this specific lane
 				FTransform ThrowerTransform = Throwers[CurrentNote.ChosenThrower] * GetActorTransform();
-			
+				FVector StartLocation = ThrowerTransform.GetLocation();
+             
+				// 2. Spawn the ball
 				ABall* SpawnedBall = Cast<ABall>(GetWorld()->SpawnActor<AActor>(BallClass, ThrowerTransform));
-				SpawnedBall->InitializeBall(ThrowerTransform.GetLocation(), GetActorLocation(), CurrentAbsoluteBeat, CurrentAbsoluteBeat + LookAheadOffSet);
-				
-				UE_LOG( LogTemp, Warning, TEXT("Target Beat: %d Spawned at %d" ), BeatNumber, CurrentAbsoluteBeat);
-				
 
+				if (SpawnedBall)
+				{
+					FVector TargetLocation = FVector(PaddleXLocation, StartLocation.Y, 60.0f);
+
+					// 1. Grab the exact floating-point beat from the Store
+					URhythmStoreSubsystem* Store = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();
+					float ExactSpawnBeat = Store ? Store->GetCurrentBeat() : (float)CurrentAbsoluteBeat;
+
+					// 2. Give the ball the ExactSpawnBeat instead of CurrentAbsoluteBeat
+					SpawnedBall->InitializeBall(StartLocation, TargetLocation, ExactSpawnBeat, ExactSpawnBeat + LookAheadOffSet);
+                 
+					UE_LOG(LogTemp, Warning, TEXT("Target Beat: %d Spawned at %d. Thrower Index: %d, Target Location: %s"), 
+					   BeatNumber, 
+					   CurrentAbsoluteBeat, 
+					   CurrentNote.ChosenThrower, 
+					   *TargetLocation.ToString()
+					);          
+				}
+				else
+				{
+					UE_LOG(LogTemp, Error, TEXT("Failed to spawn ball at beat %d. Thrower Index: %d"), BeatNumber, CurrentNote.ChosenThrower);
+				}
 			}
 		}
 	}
 }
-

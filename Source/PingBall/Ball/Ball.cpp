@@ -2,7 +2,7 @@
 
 
 #include "Ball.h"
-
+#include "DrawDebugHelpers.h"
 
 // Sets default values
 ABall::ABall()
@@ -24,7 +24,18 @@ void ABall::BeginPlay()
 
 	RhythmStore = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();	
 	
-
+	// 5th param (true) makes it permanent. 
+	// 7th param (1) sets the Depth Priority so it renders ON TOP of the floor!
+	DrawDebugLine(
+		GetWorld(), 
+		FVector(0.0, -2000.0, 60.0), 
+		FVector(0.0, 2000.0, 60.0), 
+		FColor::Red, 
+		true,   // Persistent Line
+		-1.0f,  // Infinite Lifetime
+		1,      // Depth Priority (Draws on top of everything)
+		10.0f   // Thickness
+	);
 	
 }
 
@@ -32,22 +43,28 @@ void ABall::BeginPlay()
 void ABall::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	FVector TargetLoc = FVector(0.0f, 0.0f, 230.0f);
+	if (!RhythmStore) return;
+    
 	float CurrentBeat = RhythmStore->GetCurrentBeat();
-	float Alpha = (CurrentBeat - SpawnBeat) / (TargetBeat - SpawnBeat);
-	FVector NewLocation = FMath::Lerp(StartLocation, TargetLoc, Alpha);
+    
+	// 1. Calculate the raw timing
+	float RawAlpha = (CurrentBeat - SpawnBeat) / (TargetBeat - SpawnBeat);
+    
+	// 2. The Floor: Force it to never drop below 0.0 (prevents backward spawning)
+	// Since there is no ceiling parameter here, it is free to naturally grow past 1.0!
+	float Alpha = FMath::Max(0.0f, RawAlpha);
+    
+	FVector NewLocation = FMath::Lerp(StartLocation, TargetLocation, Alpha);
 	SetActorLocation(NewLocation);
-	
+    
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Yellow, FString::Printf(TEXT("Alpha: %f | CurrentBeat: %f"), Alpha, CurrentBeat));
 	}
 
-	if (Alpha >= 1.0f)
+	// 3. Destroy once it sails safely past the paddle line
+	if (Alpha >= 1.2f)
 	{
 		Destroy();
 	}
-	
-
 }
-

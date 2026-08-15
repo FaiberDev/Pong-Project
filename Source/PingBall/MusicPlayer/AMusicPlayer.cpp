@@ -23,12 +23,21 @@ void AAMusicPlayer::BeginPlay()
 void AAMusicPlayer::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+    
+    // Safety check to ensure Quartz is fully initialized
+    if (!RhythmStore || !QuartzClockHandle) return;
+
+    // 1. Get the exact time (in seconds) the audio clock has been running
+    float RunningSeconds = QuartzClockHandle->GetEstimatedRunTime(this);
+
+    // 2. Mathematically convert the exact audio time into Absolute Beats
     float CurrentBPM = RhythmStore->GetBPM();
-    float BPS = CurrentBPM / 60.0f; // Beats per second
-    float DeltaBeat = BPS * DeltaTime; // How many beats have passed in this frame
-    float CurrentBeat = RhythmStore->GetCurrentBeat();
-    CurrentBeat += DeltaBeat;
-    RhythmStore->SetCurrentBeat(CurrentBeat);
+    float BPS = CurrentBPM / 60.0f; 
+    
+    float ExactCurrentBeat = RunningSeconds * BPS;
+
+    // 3. Push the flawless timing to the rest of the game!
+    RhythmStore->SetCurrentBeat(ExactCurrentBeat);
 }
 
 void AAMusicPlayer::InitializeClock()
@@ -42,7 +51,7 @@ void AAMusicPlayer::InitializeClock()
     if (RhythmStore)
     {
         RhythmStore->OnBeatsPerBarSet.AddDynamic(this, &AAMusicPlayer::OnBeatsPerBarChanged);
-        ClockSettings.TimeSignature.NumBeats = RhythmStore->BeatsPerBar;
+        ClockSettings.TimeSignature.NumBeats = RhythmStore->GetTimeSignature();
     }
   
     

@@ -42,7 +42,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Throwers", meta = (MakeEditWidget = true))
 	TArray<FTransform> Throwers;
 
-	int32 CurrentAbsoluteBeat = -3;
+	int32 CurrentAbsoluteBeat = 0; // Start at -3 so we can look ahead to the first beat
 	
 	int32 LookAheadOffSet = 4; // How many beats to look ahead for the next beat
 	
@@ -65,6 +65,7 @@ public:
 	void GetBeatFromStore(int32 BeatNumber);
 	
 	void LookAheadForNextBeat(int32 TargetBeatNumber);
+	
 	
 	
 };
