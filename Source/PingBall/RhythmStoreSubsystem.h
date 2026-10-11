@@ -21,6 +21,10 @@ class PINGBALL_API URhythmStoreSubsystem : public UWorldSubsystem
 	
 	
 	float CurrentBeat = 0.0f;
+	
+	
+	//Point System
+	
 public:
 	//  Shared Rhythm Data
 	UPROPERTY(BlueprintReadOnly, Category = "Rhythm Store")

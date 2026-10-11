@@ -77,12 +77,12 @@ void ABallGenerator::LookAheadForNextBeat(int32 BeatNumber)
 					// 2. Give the ball the ExactSpawnBeat instead of CurrentAbsoluteBeat
 					SpawnedBall->InitializeBall(StartLocation, TargetLocation, ExactSpawnBeat, ExactSpawnBeat + LookAheadOffSet);
                  
-					UE_LOG(LogTemp, Warning, TEXT("Target Beat: %d Spawned at %d. Thrower Index: %d, Target Location: %s"), 
-					   BeatNumber, 
-					   CurrentAbsoluteBeat, 
-					   CurrentNote.ChosenThrower, 
-					   *TargetLocation.ToString()
-					);          
+				//	UE_LOG(LogTemp, Warning, TEXT("Target Beat: %d Spawned at %d. Thrower Index: %d, Target Location: %s"), 
+				//	   BeatNumber, 
+			//		   CurrentAbsoluteBeat, 
+			//		   CurrentNote.ChosenThrower, 
+			//		   *TargetLocation.ToString()
+			//		);          
 				}
 				else
 				{

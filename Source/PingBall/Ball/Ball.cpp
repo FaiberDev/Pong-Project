@@ -2,8 +2,9 @@
 
 
 #include "Ball.h"
-#include "DrawDebugHelpers.h"
-
+#include "../GameMode/BaseGameMode.h"
+#include "NiagaraComponent.h"
+#include "PingBall/Player/ARythmPaddle.h"
 // Sets default values
 ABall::ABall()
 {
@@ -13,6 +14,16 @@ ABall::ABall()
 	
 	ballMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BallMesh"));
 	RootComponent = ballMesh;
+	
+	ImpactSquishScale = FVector(0.2f, 0.2f, 0.2f); // Shrinks to 20% of its original size
+	ScaleInterpSpeed = 20.0f; // High number = snappy and fast interpolation
+	
+	// --- NEW: Create the Niagara Component ---
+	HitEffectComponent = CreateDefaultSubobject<UNiagaraComponent>(TEXT("HitEffectComponent"));
+	HitEffectComponent->SetupAttachment(RootComponent);
+    
+	// Keep it turned off until the ball is actually
+	HitEffectComponent->SetAutoActivate(false);
 
 }
 
@@ -22,21 +33,12 @@ void ABall::BeginPlay()
 
 	Super::BeginPlay();
 
-	RhythmStore = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();	
+	RhythmStore = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();
 	
-	// 5th param (true) makes it permanent. 
-	// 7th param (1) sets the Depth Priority so it renders ON TOP of the floor!
-	DrawDebugLine(
-		GetWorld(), 
-		FVector(0.0, -2000.0, 60.0), 
-		FVector(0.0, 2000.0, 60.0), 
-		FColor::Red, 
-		true,   // Persistent Line
-		-1.0f,  // Infinite Lifetime
-		1,      // Depth Priority (Draws on top of everything)
-		10.0f   // Thickness
-	);
-	
+	// Save the original size so the math knows where it started
+	DefaultScale = GetActorScale3D();
+	TargetScale = DefaultScale;
+    	
 }
 
 // Called every frame
@@ -44,27 +46,61 @@ void ABall::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	if (!RhythmStore) return;
-    
-	float CurrentBeat = RhythmStore->GetCurrentBeat();
-    
-	// 1. Calculate the raw timing
-	float RawAlpha = (CurrentBeat - SpawnBeat) / (TargetBeat - SpawnBeat);
-    
-	// 2. The Floor: Force it to never drop below 0.0 (prevents backward spawning)
-	// Since there is no ceiling parameter here, it is free to naturally grow past 1.0!
-	float Alpha = FMath::Max(0.0f, RawAlpha);
-    
-	FVector NewLocation = FMath::Lerp(StartLocation, TargetLocation, Alpha);
-	SetActorLocation(NewLocation);
-    
-	if (GEngine)
+
+	// 1. ALWAYS DO THE SHRINKING MATH
+	FVector CurrentScale = GetActorScale3D();
+	if (!CurrentScale.Equals(TargetScale, 0.01f))
 	{
-		GEngine->AddOnScreenDebugMessage(-1, 0.0f, FColor::Yellow, FString::Printf(TEXT("Alpha: %f | CurrentBeat: %f"), Alpha, CurrentBeat));
+		FVector NewScale = FMath::VInterpTo(CurrentScale, TargetScale, DeltaTime, ScaleInterpSpeed);
+		SetActorScale3D(NewScale);
 	}
 
-	// 3. Destroy once it sails safely past the paddle line
-	if (Alpha >= 1.2f)
+	// 2. ONLY MOVE IF WE HAVEN'T BEEN HIT YET
+	if (!bWasHit)
 	{
-		Destroy();
+		float CurrentBeat = RhythmStore->GetCurrentBeat();
+		float RawAlpha = (CurrentBeat - SpawnBeat) / (TargetBeat - SpawnBeat);
+		float Alpha = FMath::Max(0.0f, RawAlpha);
+        
+		FVector NewLocation = FMath::Lerp(StartLocation, TargetLocation, Alpha);
+		SetActorLocation(NewLocation);
+
+		// Natural destruction if the player completely misses and it flies off screen
+		if (Alpha >= 1.2f)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("PASSIVE MISS! The ball was ignored."));
+			ABaseGameMode* GameMode = Cast<ABaseGameMode>(GetWorld()->GetAuthGameMode());
+			if (GameMode)
+			{
+				// If the ball wasn't hit by the paddle, it's a miss!
+				if (!bWasHit) 
+				{
+					GameMode->RegisterHit(EHitQuality::Miss);
+				}
+			}
+			Destroy();
+		}
 	}
+	else
+	{
+
+	}
+}
+
+
+
+void ABall::TriggerPerfectHitSquish(EHitQuality HitType)
+{
+	// Shrink and freeze the ball
+	TargetScale = FVector(0.0f, 0.0f, 0.0f);
+	bWasHit = true;
+
+	// --- NEW: Turn off collision so the paddle ignores it! ---
+	SetActorEnableCollision(false);
+
+	// SHOUT TO THE BLUEPRINT: "I was hit, and here is the quality!"
+	OnBallHit.Broadcast(HitType);
+	UE_LOG(LogTemp, Log, TEXT("Ball was hit! Quality: %d"), static_cast<int32>(HitType));
+
+	SetLifeSpan(1.0f); 
 }

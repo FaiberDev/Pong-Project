@@ -8,7 +8,7 @@ public class PingBall : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AudioMixer", "JsonUtilities", "Json"});
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AudioMixer", "JsonUtilities", "Json", "Niagara"});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 
