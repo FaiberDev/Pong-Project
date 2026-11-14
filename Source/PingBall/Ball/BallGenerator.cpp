@@ -1,94 +1,182 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "BallGenerator.h"
-#include "Components/SceneComponent.h"
-#include "../RhythmStoreSubsystem.h"
+#include "PingBall/RhythmStoreSubsystem.h"
 #include "Ball.h"
-// Sets default values
+#include "Engine/World.h"
+
 ABallGenerator::ABallGenerator()
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
-
-
-	
-	
+	PrimaryActorTick.bCanEverTick = false;
+	TargetHitLocation = FVector(0.0f, 0.0f, 60.0f);
+	LookAheadOffSet = 4;
+	bUseObjectPooling = true;
+	InitialPoolSize = 25;
+	CurrentAbsoluteBeat = 0;
+	NextNoteIndex = 0;
 }
 
-// Called when the game starts or when spawned
 void ABallGenerator::BeginPlay()
 {
 	Super::BeginPlay();
-	// Get the RhythmStoreSubsystem and bind to its OnBeat event
-	URhythmStoreSubsystem* Store = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();
-	if (Store)
+
+	RhythmStore = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();
+	if (RhythmStore)
 	{
-		Store->OnBeat.AddDynamic(this, &ABallGenerator::GetBeatFromStore);
+		RhythmStore->OnBeat.AddDynamic(this, &ABallGenerator::GetBeatFromStore);
 	}
-	
+
+	if (bUseObjectPooling)
+	{
+		InitializeObjectPool();
+	}
 }
 
-// Called every frame
 void ABallGenerator::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 }
 
-void ABallGenerator::GetBeatFromStore(int32 BeatNumber)
-{	
-	
-	CurrentAbsoluteBeat++;
-	
-	int32 TargetBeatNumber = CurrentAbsoluteBeat + LookAheadOffSet; // Look ahead 3 beats
-	
-	if (TargetBeatNumber >= 1)
+void ABallGenerator::InitializeObjectPool()
+{
+	if (!BallClass || !GetWorld())
 	{
-		LookAheadForNextBeat(TargetBeatNumber);	
+		return;
 	}
-	
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = this;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	for (int32 i = 0; i < InitialPoolSize; ++i)
+	{
+		ABall* PooledBall = GetWorld()->SpawnActor<ABall>(BallClass, FTransform::Identity, SpawnParams);
+		if (PooledBall)
+		{
+			PooledBall->SetPoolActive(false);
+			PooledBall->OnBallRecycle.AddDynamic(this, &ABallGenerator::OnBallRecycled);
+			BallPool.Add(PooledBall);
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[BallGenerator] Object pool warmed up with %d ball actors."), BallPool.Num());
 }
 
-void ABallGenerator::LookAheadForNextBeat(int32 BeatNumber)
+ABall* ABallGenerator::AcquireBallFromPool()
 {
-	
-	float PaddleXLocation = 0.0f;
-	for (FBeatMapNote CurrentNote : BeatMap)
+	// 1. Search for an available inactive ball in the pool
+	for (ABall* Ball : BallPool)
 	{
-		if (CurrentNote.BeatToSpawn == BeatNumber)
+		if (IsValid(Ball) && !Ball->bIsActiveInPool)
 		{
-			if (BallClass)
-			{  
-				// 1. Get the exact starting transform for this specific lane
-				FTransform ThrowerTransform = Throwers[CurrentNote.ChosenThrower] * GetActorTransform();
-				FVector StartLocation = ThrowerTransform.GetLocation();
-             
-				// 2. Spawn the ball
-				ABall* SpawnedBall = Cast<ABall>(GetWorld()->SpawnActor<AActor>(BallClass, ThrowerTransform));
+			return Ball;
+		}
+	}
 
-				if (SpawnedBall)
-				{
-					FVector TargetLocation = FVector(PaddleXLocation, StartLocation.Y, 60.0f);
+	// 2. Pool exhausted: dynamically grow pool by spawning a new instance
+	if (BallClass && GetWorld())
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = this;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-					// 1. Grab the exact floating-point beat from the Store
-					URhythmStoreSubsystem* Store = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();
-					float ExactSpawnBeat = Store ? Store->GetCurrentBeat() : (float)CurrentAbsoluteBeat;
+		ABall* NewBall = GetWorld()->SpawnActor<ABall>(BallClass, FTransform::Identity, SpawnParams);
+		if (NewBall)
+		{
+			NewBall->SetPoolActive(false);
+			NewBall->OnBallRecycle.AddDynamic(this, &ABallGenerator::OnBallRecycled);
+			BallPool.Add(NewBall);
+			UE_LOG(LogTemp, Warning, TEXT("[BallGenerator] Pool capacity expanded. Total pool size: %d"), BallPool.Num());
+			return NewBall;
+		}
+	}
 
-					// 2. Give the ball the ExactSpawnBeat instead of CurrentAbsoluteBeat
-					SpawnedBall->InitializeBall(StartLocation, TargetLocation, ExactSpawnBeat, ExactSpawnBeat + LookAheadOffSet);
-                 
-				//	UE_LOG(LogTemp, Warning, TEXT("Target Beat: %d Spawned at %d. Thrower Index: %d, Target Location: %s"), 
-				//	   BeatNumber, 
-			//		   CurrentAbsoluteBeat, 
-			//		   CurrentNote.ChosenThrower, 
-			//		   *TargetLocation.ToString()
-			//		);          
-				}
-				else
-				{
-					UE_LOG(LogTemp, Error, TEXT("Failed to spawn ball at beat %d. Thrower Index: %d"), BeatNumber, CurrentNote.ChosenThrower);
-				}
-			}
+	return nullptr;
+}
+
+void ABallGenerator::OnBallRecycled(ABall* RecycledBall)
+{
+	// Ball has already reset its visibility/collision; bookkeeping can be extended here
+}
+
+void ABallGenerator::GetBeatFromStore(int32 BeatNumber)
+{
+	CurrentAbsoluteBeat++;
+	const int32 TargetBeatNumber = CurrentAbsoluteBeat + LookAheadOffSet;
+
+	if (TargetBeatNumber >= 1)
+	{
+		LookAheadForNextBeat(TargetBeatNumber);
+	}
+}
+
+void ABallGenerator::LookAheadForNextBeat(int32 TargetBeatNumber)
+{
+	// O(1) amortized streaming: iterate notes from the current cursor until notes surpass TargetBeatNumber
+	while (BeatMap.IsValidIndex(NextNoteIndex) && BeatMap[NextNoteIndex].BeatToSpawn <= TargetBeatNumber)
+	{
+		if (BeatMap[NextNoteIndex].BeatToSpawn == TargetBeatNumber)
+		{
+			SpawnBallForNote(BeatMap[NextNoteIndex]);
+		}
+		NextNoteIndex++;
+	}
+}
+
+void ABallGenerator::SpawnBallForNote(const FBeatMapNote& Note)
+{
+	if (!BallClass)
+	{
+		return;
+	}
+
+	// Safety check 1: bounds check lane/thrower index
+	if (!Throwers.IsValidIndex(Note.ChosenThrower))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[BallGenerator] Invalid lane index %d (Max available lanes: %d)"),
+			Note.ChosenThrower, Throwers.Num());
+		return;
+	}
+
+	// 1. Calculate world-space spawn and strike locations
+	const FTransform ThrowerTransform = Throwers[Note.ChosenThrower] * GetActorTransform();
+	const FVector StartLocation = ThrowerTransform.GetLocation();
+	const FVector TargetLocation = FVector(TargetHitLocation.X, StartLocation.Y, TargetHitLocation.Z);
+
+	// 2. Query exact audio beat from subsystem
+	float ExactSpawnBeat = RhythmStore ? RhythmStore->GetCurrentBeat() : static_cast<float>(CurrentAbsoluteBeat);
+
+	// 3. Acquire ball from pool or spawn actor
+	ABall* BallInstance = nullptr;
+	if (bUseObjectPooling)
+	{
+		BallInstance = AcquireBallFromPool();
+	}
+	else
+	{
+		BallInstance = GetWorld()->SpawnActor<ABall>(BallClass, ThrowerTransform);
+	}
+
+	if (BallInstance)
+	{
+		BallInstance->InitializeBall(
+			StartLocation,
+			TargetLocation,
+			ExactSpawnBeat,
+			ExactSpawnBeat + static_cast<float>(LookAheadOffSet),
+			Note.NoteColorIndex
+		);
+	}
+}
+
+void ABallGenerator::ResetSpawner()
+{
+	CurrentAbsoluteBeat = 0;
+	NextNoteIndex = 0;
+
+	for (ABall* Ball : BallPool)
+	{
+		if (IsValid(Ball))
+		{
+			Ball->DeactivateBall();
 		}
 	}
 }

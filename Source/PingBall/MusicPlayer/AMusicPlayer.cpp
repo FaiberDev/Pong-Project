@@ -2,123 +2,148 @@
 #include "Components/AudioComponent.h"
 #include "Sound/SoundWave.h"
 #include "Quartz/AudioMixerClockHandle.h"
-#include "../RhythmStoreSubsystem.h"
+#include "PingBall/RhythmStoreSubsystem.h"
+#include "PingBall/Data/RhythmSongDataAsset.h"
 
-// Sets default values
 AAMusicPlayer::AAMusicPlayer()
 {
-    PrimaryActorTick.bCanEverTick = true;
-    AudioComponent = CreateDefaultSubobject<UAudioComponent>(TEXT("AudioComponent"));
+	PrimaryActorTick.bCanEverTick = true;
+	AudioComponent = CreateDefaultSubobject<UAudioComponent>(TEXT("AudioComponent"));
+	ClockName = TEXT("MusicPlayerClock");
+	TrackTimeMs = 0.0f;
 }
 
-// Called when the game starts or when spawned
 void AAMusicPlayer::BeginPlay()
 {
-    Super::BeginPlay();
-    RhythmStore = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();
-    InitializeClock();
-    StartClockAndAudio();
+	Super::BeginPlay();
+
+	RhythmStore = GetWorld()->GetSubsystem<URhythmStoreSubsystem>();
+
+	if (ActiveSongData)
+	{
+		PlaySongAsset(ActiveSongData);
+	}
+	else
+	{
+		InitializeClock();
+		StartClockAndAudio();
+	}
 }
 
 void AAMusicPlayer::Tick(float DeltaTime)
 {
-    Super::Tick(DeltaTime);
-    
-    // Safety check to ensure Quartz is fully initialized
-    if (!RhythmStore || !QuartzClockHandle) return;
+	Super::Tick(DeltaTime);
 
-    // 1. Get the exact time (in seconds) the audio clock has been running
-    float RunningSeconds = QuartzClockHandle->GetEstimatedRunTime(this);
+	if (!RhythmStore || !QuartzClockHandle) return;
 
-    // 2. Mathematically convert the exact audio time into Absolute Beats
-    float CurrentBPM = RhythmStore->GetBPM();
-    float BPS = CurrentBPM / 60.0f; 
-    
-    float ExactCurrentBeat = RunningSeconds * BPS;
+	// 1. Get exact elapsed seconds from the Quartz audio clock
+	const float RunningSeconds = QuartzClockHandle->GetEstimatedRunTime(this);
+	TrackTimeMs = RunningSeconds * 1000.0f;
 
-    // 3. Push the flawless timing to the rest of the game!
-    RhythmStore->SetCurrentBeat(ExactCurrentBeat);
+	// 2. Mathematically calculate continuous beat
+	const float CurrentBPM = RhythmStore->GetBPM();
+	if (CurrentBPM > 0.0f)
+	{
+		const float BPS = CurrentBPM / 60.0f;
+		const float ExactCurrentBeat = RunningSeconds * BPS;
+
+		// 3. Update subsystem single source of truth
+		RhythmStore->SetCurrentBeat(ExactCurrentBeat);
+	}
 }
 
 void AAMusicPlayer::InitializeClock()
 {
-    
+	FQuartzClockSettings ClockSettings;
 
-    FName ClockName = TEXT("MusicPlayer");
-    FQuartzClockSettings ClockSettings;
-    
+	if (RhythmStore)
+	{
+		RhythmStore->OnBeatsPerBarSet.AddDynamic(this, &AAMusicPlayer::OnBeatsPerBarChanged);
+		ClockSettings.TimeSignature.NumBeats = RhythmStore->GetTimeSignature();
+	}
 
-    if (RhythmStore)
-    {
-        RhythmStore->OnBeatsPerBarSet.AddDynamic(this, &AAMusicPlayer::OnBeatsPerBarChanged);
-        ClockSettings.TimeSignature.NumBeats = RhythmStore->GetTimeSignature();
-    }
-  
-    
-    UQuartzSubsystem* QuartzSubsystem = UQuartzSubsystem::Get(GetWorld());
-    if (QuartzSubsystem)
-    {
-        QuartzClockHandle = QuartzSubsystem->CreateNewClock(this, ClockName, ClockSettings);
-    }
+	UQuartzSubsystem* QuartzSubsystem = UQuartzSubsystem::Get(GetWorld());
+	if (QuartzSubsystem)
+	{
+		QuartzClockHandle = QuartzSubsystem->CreateNewClock(this, ClockName, ClockSettings);
+	}
 }
 
 void AAMusicPlayer::StartClockAndAudio()
 {
-    if (!QuartzClockHandle) return;
-    // Get BPM From Store and Start clock
-    
-    if (RhythmStore)
-    {
-        RhythmStore->OnBPMSet.AddDynamic(this, &AAMusicPlayer::OnBPMChanged);
-        QuartzClockHandle->SetBeatsPerMinute(this, FQuartzQuantizationBoundary(), FOnQuartzCommandEventBP(), QuartzClockHandle, RhythmStore->GetBPM());
-    }   
-    QuartzClockHandle->StartClock(this, QuartzClockHandle);
-    
-    //  Bind and Subscribe to Beats
-    FOnQuartzMetronomeEventBP BeatDelegate;
-    BeatDelegate.BindDynamic(this, &AAMusicPlayer::OnQuartzBeat);   
-    QuartzClockHandle->SubscribeToQuantizationEvent(this, EQuartzCommandQuantization::Beat, BeatDelegate,  QuartzClockHandle);
-    
-    // Play Audio Quantized
-    FQuartzQuantizationBoundary Boundary;
-    Boundary.Quantization = EQuartzCommandQuantization::None;
-    
-    if (SoundWave && AudioComponent)
-    {
-       AudioComponent->SetSound(SoundWave);
-       AudioComponent->PlayQuantized(this, QuartzClockHandle, Boundary, FOnQuartzCommandEventBP());
-    }
+	if (!QuartzClockHandle) return;
+
+	if (RhythmStore)
+	{
+		RhythmStore->OnBPMSet.AddDynamic(this, &AAMusicPlayer::OnBPMChanged);
+		QuartzClockHandle->SetBeatsPerMinute(this, FQuartzQuantizationBoundary(), FOnQuartzCommandEventBP(), QuartzClockHandle, RhythmStore->GetBPM());
+	}
+
+	QuartzClockHandle->StartClock(this, QuartzClockHandle);
+
+	// Subscribe to beat quantization events
+	FOnQuartzMetronomeEventBP BeatDelegate;
+	BeatDelegate.BindDynamic(this, &AAMusicPlayer::OnQuartzBeat);
+	QuartzClockHandle->SubscribeToQuantizationEvent(this, EQuartzCommandQuantization::Beat, BeatDelegate, QuartzClockHandle);
+
+	// Play audio quantized
+	FQuartzQuantizationBoundary Boundary;
+	Boundary.Quantization = EQuartzCommandQuantization::None;
+
+	if (SoundWave && AudioComponent)
+	{
+		AudioComponent->SetSound(SoundWave);
+		AudioComponent->PlayQuantized(this, QuartzClockHandle, Boundary, FOnQuartzCommandEventBP());
+	}
+
+	if (RhythmStore)
+	{
+		RhythmStore->OnSongStarted.Broadcast();
+	}
 }
 
-void AAMusicPlayer::OnQuartzBeat(FName ClockName, EQuartzCommandQuantization QuantizationType, int32 NumBars, int32 Beat, float FractionalBeat)
+void AAMusicPlayer::PlaySongAsset(URhythmSongDataAsset* SongAsset)
 {
-   // UE_LOG(LogTemp, Warning, TEXT("Beat: %d, Bar: %d"), Beat, NumBars);
+	if (!SongAsset) return;
 
-    if (RhythmStore)
-    {
-       RhythmStore->OnBeat.Broadcast(Beat); 
-    }
-    // Log the current BPM
-    if (QuartzClockHandle)
-    {
-       // UE_LOG(LogTemp, Warning, TEXT("BPM: %f"), QuartzClockHandle->GetBeatsPerMinute(this));
-    }
-    
+	ActiveSongData = SongAsset;
+
+	if (SongAsset->SongAudio)
+	{
+		SoundWave = SongAsset->SongAudio;
+	}
+
+	if (RhythmStore)
+	{
+		RhythmStore->SetBPM(SongAsset->DefaultBPM);
+		RhythmStore->SetTimeSignature(SongAsset->DefaultTimeSignature);
+	}
+
+	InitializeClock();
+	StartClockAndAudio();
 }
 
+void AAMusicPlayer::OnQuartzBeat(FName InClockName, EQuartzCommandQuantization QuantizationType, int32 NumBars, int32 Beat, float FractionalBeat)
+{
+	if (RhythmStore)
+	{
+		// Calculate the true global beat: (Bars * BeatsPerBar) + Beat
+		const int32 TimeSig = RhythmStore->GetTimeSignature() > 0 ? RhythmStore->GetTimeSignature() : 4;
+		const int32 AbsoluteBeat = (NumBars * TimeSig) + FMath::Max(0, Beat - 1);
+
+		RhythmStore->OnBeat.Broadcast(AbsoluteBeat);
+	}
+}
 
 void AAMusicPlayer::OnBPMChanged(float NewBPM)
 {
-    if (QuartzClockHandle)
-    {
-        QuartzClockHandle->SetBeatsPerMinute(this, FQuartzQuantizationBoundary(), FOnQuartzCommandEventBP(), QuartzClockHandle, NewBPM);
-    }
+	if (QuartzClockHandle)
+	{
+		QuartzClockHandle->SetBeatsPerMinute(this, FQuartzQuantizationBoundary(), FOnQuartzCommandEventBP(), QuartzClockHandle, NewBPM);
+	}
 }
 
 void AAMusicPlayer::OnBeatsPerBarChanged(int32 NewBeatsPerBar)
 {
-    if (QuartzClockHandle)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("BeatsPerBar changed to: %d"), NewBeatsPerBar);
-    }
+	UE_LOG(LogTemp, Log, TEXT("[MusicPlayer] BeatsPerBar changed to: %d"), NewBeatsPerBar);
 }

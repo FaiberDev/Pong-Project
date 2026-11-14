@@ -3,7 +3,6 @@
 
 #include "ColorBall.h"
 
-#include "NaniteSceneProxy.h"
 
 // Sets default values
 AColorBall::AColorBall()

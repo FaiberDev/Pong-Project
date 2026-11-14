@@ -15,15 +15,12 @@ public:
 	// Sets default values for this actor's properties
 	AColorBall();
 	
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components");
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	UStaticMeshComponent* ballMesh;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ball Properties")
 	float startingVelocity;
 	
-
-	
-
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -38,11 +35,11 @@ public:
 	UFUNCTION()	
 	void MultiplyVelocity(float  multiplier);
 	
-	
 	void SetBallColor(FString newColor);
 	
 	void getCurrentMaterial();
 	
 private:
+	UPROPERTY(Transient)
 	class UMaterialInstanceDynamic* DynamicMaterial;
 };
